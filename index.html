@@ -35,11 +35,13 @@ button{cursor:pointer;font-weight:600}.primary{background:var(--accent);border:n
 <label>¿Se realizó trombectomía?</label><select id="tvtDone"><option value="no">No</option><option value="yes">Sí</option></select>
 <div id="tvtFields" class="hidden"><div class="grid"><div><label>Punción</label><input type="time" id="tvtPuncture"></div><div><label>Recanalización</label><input type="time" id="recanalization"></div></div></div>
 <div class="actions"><button class="primary" id="save">Guardar registro definitivo</button><button class="secondary" id="clear">Limpiar</button></div>
-<p style="color:var(--muted);font-size:.78rem;margin-bottom:0">El formulario se guarda automáticamente como borrador mientras lo rellenas. Pulsa “Guardar registro definitivo” para añadirlo a la lista exportable.</p>
+<p style="color:var(--muted);font-size:.78rem;margin-bottom:0">El formulario se guarda automáticamente como borrador. Pulsa “Guardar registro definitivo” para añadirlo a la lista consultable y exportable.</p>
 </section>
 <section class="card"><h3 style="margin-top:0">Tiempos calculados</h3><div class="metrics" id="metrics"></div>
 <p style="color:var(--muted);font-size:.8rem">Si el inicio es desconocido, los tiempos desde el inicio se calculan desde la llegada a Urgencias.</p></section>
-<section class="card records"><h3 style="margin-top:0">Registros guardados</h3><div id="recordList"></div>
+<section class="card records"><h3 style="margin-top:0">Registros guardados</h3>
+<label>Buscar registros</label><input id="search" placeholder="Buscar por identificador, hora, trombectomía…">
+<div id="recordList"></div>
 <div class="actions"><button class="primary" id="exportCsv">Descargar CSV</button><button class="secondary" id="exportJson">Descargar JSON</button><button class="danger" id="deleteAll">Borrar todo</button></div></section>
 </main>
 <footer><button class="primary" id="install">Instalar app</button></footer>
@@ -54,12 +56,14 @@ function calc(){const v=id=>$(id).value;const base=v('onsetUnknown')==='yes'?v('
 const rows=[['Inicio → Urgencias',mins(v('onset'),v('arrival')),180,360],['Urgencias → Neurología',mins(v('arrival'),v('neuro')),15,30],['Urgencias → TC entrada',mins(v('arrival'),v('ctIn')),25,45],['TC entrada → salida',mins(v('ctIn'),v('ctOut')),20,30],['Inicio → fibrinólisis',mins(base,v('lysis')),60,270],['Urgencias → aguja',mins(v('arrival'),v('lysis')),60,90]];
 if(v('tvtDone')==='yes'){rows.push(['Urgencias → punción',mins(v('arrival'),v('tvtPuncture')),90,120],['Punción → recanalización',mins(v('tvtPuncture'),v('recanalization')),60,90],['Inicio → recanalización',mins(base,v('recanalization')),360,480])}
 $('metrics').innerHTML=rows.map(([n,m,g,w])=>`<div class="metric"><span>${n}</span><b class="${cls(m,g,w)}">${fmt(m)}</b></div>`).join('')}
-function render(){const rs=store.get();$('recordList').innerHTML=rs.length?rs.map((r,i)=>`<div class="item"><b>${r.patient||'Sin identificador'}</b><br><small>Inicio: ${r.onset||'desconocida'} · Urgencias: ${r.arrival||'—'} · Neurología: ${r.neuro||'—'} · TC: ${r.ctIn||'—'}→${r.ctOut||'—'} · Aguja: ${r.lysis||'—'}<br>Trombectomía: ${r.tvtDone==='yes'?`punción ${r.tvtPuncture||'—'}, recanalización ${r.recanalization||'—'}`:'No'} · Guardado: ${r.savedAt}</small><div class="actions"><button class="secondary" onclick="loadRecord(${i})">Cargar</button><button class="danger" onclick="deleteRecord(${i})">Borrar</button></div></div>`).join(''):'<p style="color:var(--muted)">Aún no hay registros definitivos.</p>'}
+function recordText(r){return [r.patient,r.onset,r.onsetUnknown,r.arrival,r.neuro,r.ctIn,r.ctOut,r.lysis,r.tvtDone,r.tvtPuncture,r.recanalization,r.savedAt].join(' ').toLowerCase()}
+function render(){const q=($('search').value||'').toLowerCase().trim();const rs=store.get();const filtered=rs.map((r,i)=>({r,i})).filter(({r})=>!q||recordText(r).includes(q));
+$('recordList').innerHTML=filtered.length?filtered.map(({r,i})=>`<div class="item"><b>${r.patient||'Sin identificador'}</b><br><small>Inicio: ${r.onset||'desconocida'} · Urgencias: ${r.arrival||'—'} · Neurología: ${r.neuro||'—'} · TC: ${r.ctIn||'—'}→${r.ctOut||'—'} · Aguja: ${r.lysis||'—'}<br>Trombectomía: ${r.tvtDone==='yes'?`punción ${r.tvtPuncture||'—'}, recanalización ${r.recanalization||'—'}`:'No'} · Guardado: ${r.savedAt}</small><div class="actions"><button class="secondary" onclick="loadRecord(${i})">Cargar</button><button class="danger" onclick="deleteRecord(${i})">Borrar</button></div></div>`).join(''):(rs.length?'<p style="color:var(--muted)">No hay registros que coincidan con la búsqueda.</p>':'<p style="color:var(--muted)">Aún no hay registros definitivos.</p>')}
 window.loadRecord=i=>{const r=store.get()[i];FIELDS.forEach(f=>$(f).value=r[f]||'');$('tvtFields').classList.toggle('hidden',r.tvtDone!=='yes');saveDraft();calc();scrollTo({top:0,behavior:'smooth'})};
 window.deleteRecord=i=>{const rs=store.get();rs.splice(i,1);store.set(rs);render()};
 function saveDraft(){const d={};FIELDS.forEach(f=>d[f]=$(f).value);d.savedAt=new Date().toLocaleString('es-ES');localStorage.setItem('ictus_draft',JSON.stringify(d))}
 $('tvtDone').addEventListener('change',e=>{$('tvtFields').classList.toggle('hidden',e.target.value!=='yes');saveDraft()});
-document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{saveDraft();calc()}));
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{if(el.id==='search'){render();return}saveDraft();calc()}));
 $('clear').onclick=()=>{if(!confirm('¿Limpiar el formulario? Se borrará también el borrador automático.'))return;FIELDS.forEach(f=>$(f).value='');$('tvtFields').classList.add('hidden');localStorage.removeItem('ictus_draft');calc()};
 $('save').onclick=()=>{const r={};FIELDS.forEach(f=>r[f]=$(f).value);r.savedAt=new Date().toLocaleString('es-ES');const rs=store.get();rs.unshift(r);store.set(rs);render();localStorage.removeItem('ictus_draft');FIELDS.forEach(f=>$(f).value='');$('tvtFields').classList.add('hidden');calc();alert('Registro guardado definitivamente.')};
 function download(n,c,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;a.click()}
