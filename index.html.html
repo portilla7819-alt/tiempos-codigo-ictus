@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Código Ictus — Calculadora de tiempos</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{padding:16px;background:#111827;position:sticky;top:0;z-index:10;border-bottom:1px solid #334155}
+h1{margin:0;font-size:1.15rem}main{padding:12px;max-width:720px;margin:auto;padding-bottom:90px}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 4px}
+input,select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #475569;background:#0b1220;color:var(--text);font-size:1rem}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{cursor:pointer;font-weight:600}.primary{background:var(--accent);border:none;color:#06263a}.secondary{background:#334155;border:none}.danger{background:#7f1d1d;border:none}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.metric{background:#0b1220;border-radius:10px;padding:10px}.metric b{display:block;font-size:1.25rem}.metric span{font-size:.75rem;color:var(--muted)}
+.good{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.records .item{background:#0b1220;border-radius:10px;padding:10px;margin-bottom:8px}.records .item small{color:var(--muted)}
+.actions{display:flex;gap:8px;margin-top:8px}footer{position:fixed;bottom:0;left:0;right:0;background:#111827;border-top:1px solid #334155;padding:10px;display:flex;gap:8px}footer button{flex:1}.hidden{display:none}
+</style>
+</head>
+<body>
+<header><h1>⏱️ Código Ictus — Tiempos</h1></header>
+<main>
+<section class="card">
+<label>Identificador / iniciales</label><input id="patient" placeholder="Ej.: JC-001">
+<label>Hora de inicio de síntomas</label>
+<div class="grid"><input type="time" id="onset"><select id="onsetUnknown"><option value="">Conocida</option><option value="yes">Desconocida</option></select></div>
+<label>Hora de llegada a Urgencias</label><input type="time" id="arrival">
+<label>Hora de valoración por Neurología</label><input type="time" id="neuro">
+<div class="grid"><div><label>Entrada en sala TC</label><input type="time" id="ctIn"></div><div><label>Salida de sala TC</label><input type="time" id="ctOut"></div></div>
+<label>Hora de fibrinólisis (aguja)</label><input type="time" id="lysis">
+<label>¿Se realizó trombectomía?</label><select id="tvtDone"><option value="no">No</option><option value="yes">Sí</option></select>
+<div id="tvtFields" class="hidden"><div class="grid"><div><label>Punción</label><input type="time" id="tvtPuncture"></div><div><label>Recanalización</label><input type="time" id="recanalization"></div></div></div>
+<div class="actions"><button class="primary" id="save">Guardar registro definitivo</button><button class="secondary" id="clear">Limpiar</button></div>
+<p style="color:var(--muted);font-size:.78rem;margin-bottom:0">El formulario se guarda automáticamente como borrador mientras lo rellenas. Pulsa “Guardar registro definitivo” para añadirlo a la lista exportable.</p>
+</section>
+<section class="card"><h3 style="margin-top:0">Tiempos calculados</h3><div class="metrics" id="metrics"></div>
+<p style="color:var(--muted);font-size:.8rem">Si el inicio es desconocido, los tiempos desde el inicio se calculan desde la llegada a Urgencias.</p></section>
+<section class="card records"><h3 style="margin-top:0">Registros guardados</h3><div id="recordList"></div>
+<div class="actions"><button class="primary" id="exportCsv">Descargar CSV</button><button class="secondary" id="exportJson">Descargar JSON</button><button class="danger" id="deleteAll">Borrar todo</button></div></section>
+</main>
+<footer><button class="primary" id="install">Instalar app</button></footer>
+<script>
+const FIELDS=['patient','onset','onsetUnknown','arrival','neuro','ctIn','ctOut','lysis','tvtDone','tvtPuncture','recanalization'];
+const $=id=>document.getElementById(id);
+const store={get:()=>JSON.parse(localStorage.getItem('ictus_records')||'[]'),set:v=>localStorage.setItem('ictus_records',JSON.stringify(v))};
+function mins(a,b){if(!a||!b)return null;let d=new Date('2000-01-01T'+b)-new Date('2000-01-01T'+a);if(d<0)d+=86400000;return Math.round(d/60000)}
+function fmt(m){return m==null?'—':m+' min'}
+function cls(m,g,w){return m==null?'':m<=g?'good':m<=w?'warn':'bad'}
+function calc(){const v=id=>$(id).value;const base=v('onsetUnknown')==='yes'?v('arrival'):v('onset');
+const rows=[['Inicio → Urgencias',mins(v('onset'),v('arrival')),180,360],['Urgencias → Neurología',mins(v('arrival'),v('neuro')),15,30],['Urgencias → TC entrada',mins(v('arrival'),v('ctIn')),25,45],['TC entrada → salida',mins(v('ctIn'),v('ctOut')),20,30],['Inicio → fibrinólisis',mins(base,v('lysis')),60,270],['Urgencias → aguja',mins(v('arrival'),v('lysis')),60,90]];
+if(v('tvtDone')==='yes'){rows.push(['Urgencias → punción',mins(v('arrival'),v('tvtPuncture')),90,120],['Punción → recanalización',mins(v('tvtPuncture'),v('recanalization')),60,90],['Inicio → recanalización',mins(base,v('recanalization')),360,480])}
+$('metrics').innerHTML=rows.map(([n,m,g,w])=>`<div class="metric"><span>${n}</span><b class="${cls(m,g,w)}">${fmt(m)}</b></div>`).join('')}
+function render(){const rs=store.get();$('recordList').innerHTML=rs.length?rs.map((r,i)=>`<div class="item"><b>${r.patient||'Sin identificador'}</b><br><small>Inicio: ${r.onset||'desconocida'} · Urgencias: ${r.arrival||'—'} · Neurología: ${r.neuro||'—'} · TC: ${r.ctIn||'—'}→${r.ctOut||'—'} · Aguja: ${r.lysis||'—'}<br>Trombectomía: ${r.tvtDone==='yes'?`punción ${r.tvtPuncture||'—'}, recanalización ${r.recanalization||'—'}`:'No'} · Guardado: ${r.savedAt}</small><div class="actions"><button class="secondary" onclick="loadRecord(${i})">Cargar</button><button class="danger" onclick="deleteRecord(${i})">Borrar</button></div></div>`).join(''):'<p style="color:var(--muted)">Aún no hay registros definitivos.</p>'}
+window.loadRecord=i=>{const r=store.get()[i];FIELDS.forEach(f=>$(f).value=r[f]||'');$('tvtFields').classList.toggle('hidden',r.tvtDone!=='yes');saveDraft();calc();scrollTo({top:0,behavior:'smooth'})};
+window.deleteRecord=i=>{const rs=store.get();rs.splice(i,1);store.set(rs);render()};
+function saveDraft(){const d={};FIELDS.forEach(f=>d[f]=$(f).value);d.savedAt=new Date().toLocaleString('es-ES');localStorage.setItem('ictus_draft',JSON.stringify(d))}
+$('tvtDone').addEventListener('change',e=>{$('tvtFields').classList.toggle('hidden',e.target.value!=='yes');saveDraft()});
+document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>{saveDraft();calc()}));
+$('clear').onclick=()=>{if(!confirm('¿Limpiar el formulario? Se borrará también el borrador automático.'))return;FIELDS.forEach(f=>$(f).value='');$('tvtFields').classList.add('hidden');localStorage.removeItem('ictus_draft');calc()};
+$('save').onclick=()=>{const r={};FIELDS.forEach(f=>r[f]=$(f).value);r.savedAt=new Date().toLocaleString('es-ES');const rs=store.get();rs.unshift(r);store.set(rs);render();localStorage.removeItem('ictus_draft');FIELDS.forEach(f=>$(f).value='');$('tvtFields').classList.add('hidden');calc();alert('Registro guardado definitivamente.')};
+function download(n,c,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;a.click()}
+$('exportCsv').onclick=()=>{const rs=store.get();if(!rs.length)return alert('No hay registros.');const cols=[...FIELDS,'savedAt'];download('registros_ictus.csv','\ufeff'+[cols.join(';'),...rs.map(r=>cols.map(c=>`"${String(r[c]??'').replace(/"/g,'""')}"`).join(';'))].join('\n'),'text/csv;charset=utf-8')};
+$('exportJson').onclick=()=>download('registros_ictus.json',JSON.stringify(store.get(),null,2),'application/json');
+$('deleteAll').onclick=()=>{if(confirm('¿Borrar todos los registros definitivos?')){store.set([]);render()}};
+let dp;addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e});
+$('install').onclick=()=>{if(dp){dp.prompt();dp=null}else alert('iPhone: Compartir → Añadir a pantalla de inicio. Android/Chrome: menú ⋮ → Instalar aplicación.')};
+if('serviceWorker' in navigator){const sw=`self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))))`;navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'text/javascript'}))).catch(()=>{})}
+(function(){const d=JSON.parse(localStorage.getItem('ictus_draft')||'null');if(d){FIELDS.forEach(f=>$(f).value=d[f]||'');$('tvtFields').classList.toggle('hidden',d.tvtDone!=='yes')}})();
+calc();render();
+</script>
+</body>
+</html>
